@@ -57,7 +57,8 @@ def objective(args):
 
 
 space = {
-    'boosting_type': hp.choice('boosting_type', ['gbdt', 'dart', 'goss', 'rf']),
+    # 'boosting_type': hp.choice('boosting_type', ['gbdt', 'dart', 'goss', 'rf']),
+'boosting_type': hp.choice('boosting_type', ['gbdt', 'dart']),
     'learning_rate': hp.uniform('learning_rate', 0.01, 5),
     'max_depth': hp.choice('max_depth', range(3, 20, 1)),
     'num_leaves': hp.choice('num_leaves', range(10, 300, 10)),
@@ -75,20 +76,24 @@ space = {
 
 
 # %%
-def getHyper(trainDataset, validDataset):
+def getHyper(trainDataset, validDataset, phase=1):
     bestParms = []
     labelSize = y_train.shape[-1]
+
     for i in range(labelSize):
-        print(f'Feature: {i}')
+        print(f'Actuator: {i}')
+
         trainDataset.setData(X_train, y_train[:, i])
         validDataset.setData(X_valid, y_valid[:, i])
-        best = fmin(objective, space, algo=tpe.suggest, max_evals=50)
+        best = fmin(objective, space, algo=tpe.suggest, max_evals=100)
         bestParms.append(space_eval(space, best))
+
+
     return bestParms
 
 
 def train(args):
-    clf = LGBMClassifier(boosting_type='dart',
+    clf = LGBMClassifier(boosting_type=args['boosting_type'],
                          learning_rate=args['learning_rate'],
                          max_depth=args['max_depth'],
                          num_leaves=args['num_leaves'],
@@ -117,32 +122,36 @@ trainDataset = dataset(None, None)
 validDataset = dataset(None, None)
 # %%
 bestParms = getHyper(trainDataset, validDataset)
-# %%
 
+#%%
 modelList = []
-validPrediction = []
-testPrediction = []
+validPred = []
+testPred = []
+testProba = []
 for i, hyperParms in enumerate(bestParms):
     trainDataset.setData(X_train, y_train[:, i])
     validDataset.setData(X_valid, y_valid[:, i])
     clf, score = train(hyperParms)
     modelList.append(clf)
-    validPrediction.append(clf.predict(X_valid))
-    testPrediction.append(clf.predict(X_test))
-
+    validPred.append(clf.predict(X_valid))
+    testPred.append(clf.predict(X_test))
+    testProba.append(clf.predict_proba(X_test)[:, 0])
 
 with open('modelList.pickle', 'wb') as handle:
     pickle.dump(modelList, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('modelList.pickle', 'rb') as handle:
     modelList = pickle.load(handle)
-validPrediction = np.array(validPrediction).T
-testPrediction = np.array(testPrediction).T
+validPred = np.array(validPred).T
+testPrediction = np.array(testPred).T
+testProba = np.array(testProba).T
 # %%
-f1 = f1_score(validPrediction, y_valid, average='micro', zero_division=True)
+f1 = f1_score(validPred, y_valid, average='micro', zero_division=True)
 
 # %%
 sample = pd.read_csv('IA/submission.csv', index_col=0)
 # %%
-submission = pd.DataFrame(testPrediction, columns=sample.columns.to_list())
+pred = pd.DataFrame(testPrediction, columns=sample.columns.to_list())
+proba = pd.DataFrame(testProba, columns=sample.columns.to_list())
 # %%
-submission.to_csv('IA/lightbgmPrediction.csv')
+pred.to_csv('IA/lightbgmPred.csv')
+proba.to_csv('IA/lightbgmProba.csv')
